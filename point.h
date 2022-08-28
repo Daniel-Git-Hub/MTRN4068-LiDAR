@@ -20,11 +20,16 @@ typedef struct S_POINT_CLOUD {
   double worldY;
 } POINT_CLOUD;
 
+typedef struct S_BRUTE_RETURN {
+  int status;
+  int featureIdx;
+  double angle;
+} BRUTE_RETURN;
 
 int pointClose();
 
 int pointAdd(FEATURE *);
-
+BRUTE_RETURN pointBruteIter(CALC_POS *, CALC_POS *, int);
 int pointBrute(CALC_POS *, CALC_POS *, int);
 int pointCloseGnu();
 int pointPrintCloud();

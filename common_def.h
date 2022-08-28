@@ -24,11 +24,9 @@
 
 #define OUTLIER_TOL 2
 
-#define POS_RESULT_FILE "result/result.csv"
-
 #define USE_GNU_PLOT 1
-#define GNU_UPDATE_FREQUENCY 400
-#define GNU_SPEED_UP 40
+#define GNU_UPDATE_FREQUENCY 50000 //If this number is large enough then it will only plot on the last cycle
+// #define GNU_SPEED_UP 40
 
 #define GNU_RAW "gnuPlot/rawData"
 
@@ -41,7 +39,7 @@
 #define GNU_COMPASS "gnuPlot/compassData"
 
 
-
+#define GNU_OCC_MATRIX "gnuPlot/laserOcc"
 #define GNU_OCC_GRID "gnuPlot/occGrid"
 #define GNU_FEAT_GRID "gnuPlot/featGrid"
 
@@ -58,8 +56,9 @@
 
 #define COMP_GAIN 0.95
 #define POS_GAIN 0.985
-#define FEAT_GAIN 0.985
-#define FEAT_HEAD_GAIN 0.99
+
+#define FEAT_GAIN 0.9
+#define FEAT_HEAD_GAIN 0.1
 
 #define OCC_THRESHOLD 0.6
 
@@ -74,7 +73,7 @@ typedef struct S_CALC_POS {
 
 typedef struct S_OCC_CELL {
   double hit;
-  double miss;
+  // double miss;
 } OCC_CELL;
 
 
@@ -89,9 +88,11 @@ int computeRealAvg(double *, double *, int);
 double normAngle(double, double);
 double avgAngle(double *, int);
 
-int calculateCellHit(OCC_CELL *, double);
-int calculateCellMiss(OCC_CELL *, double);
-
+int calculateCell(OCC_CELL *, double, double);
+int calculateCellHit(OCC_CELL * cell, double range);
+int calculateCellHit(OCC_CELL * cell, double range, double offset);
+int calculateCellMiss(OCC_CELL * cell, double range);
+int calculateCellMiss(OCC_CELL * cell, double range, double offset);
 int printFileInit();
 int printPos(char *, double, double);
 int printPos(char *, double, double, double);

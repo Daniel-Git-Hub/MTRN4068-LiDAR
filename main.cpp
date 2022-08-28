@@ -18,8 +18,6 @@
 #include <unistd.h>
 
 
-int print_pos(CALC_POS);
-int fillOccGrid(LASER *, CALC_POS *);
 
 int laserCount = 0;
 double testSum = 0;
@@ -73,11 +71,14 @@ int main(int argc, char **argv)
   char * occCmd = 
 "set ylabel 'y (m)'\n"
 "set xlabel 'x (m)'\n"
+"set xrange [-15:15]\n"
+"set yrange [-15:15]\n"
 "set pointsize 5\n"
 // "set title 'Occupancy Grid'\n"
-"plot '" GNU_COMB "' volatile using 'x':'y' title 'Combined' with lines, "
-"'" GNU_OCC_GRID "' volatile using 'x':'y' title 'GPS' with points pt '⊙', "
-"'" GNU_FEAT_GRID "' volatile using 'x':'y' title 'GPS' with points pt '⊙'\n"
+"plot '" GNU_OCC_MATRIX "' matrix using ($1/10 - 15):($2/10 - 15):3 with image, "
+"'" GNU_COMB "' volatile using 'x':'y' title 'Robot Path' with lines, "
+// "'" GNU_OCC_GRID "' volatile using 'x':'y' title 'GPS' with points pt '⊙', "
+"'" GNU_FEAT_GRID "' volatile using 'x':'y' title 'Features' with points pt '⊙'\n"
 ;
 
   printf("Init start\n");
@@ -86,13 +87,14 @@ int main(int argc, char **argv)
 
 #ifdef USE_GNU_PLOT
   printFileInit();
-
+#if USE_GNU_PLOT == 1
   gnuplot_ctrl * gnuPlot, * occPlot;
   gnuPlot = gnuplot_init();
-  gnuplot_cmd(gnuPlot, plotCmd);
+  // gnuplot_cmd(gnuPlot, plotCmd);
   
   occPlot = gnuplot_init();
-  gnuplot_cmd(occPlot, occCmd);
+  // gnuplot_cmd(occPlot, occCmd);
+#endif
 #endif
 
   compInit();
@@ -108,19 +110,11 @@ int main(int argc, char **argv)
   for(int i = 0; i < WINDOW_ARRAY_Y; i++){
     for(int ii = 0; ii < WINDOW_ARRAY_X; ii++){
       complexOccopuncyGrid[i][ii].hit = 0.5;
-      complexOccopuncyGrid[i][ii].miss = 0.5;
     }
 
   }
 
-  FILE * posResult = fopen(POS_RESULT_FILE, "w");
-  fprintf(posResult, "time, gpsX, gpsY, compass, velX, velY, velHeading, combX, combY, combHeading, featX, featY, featHeading\n");
-  
   memset(occopuncyGrid, 0, (WINDOW_ARRAY_Y)*(WINDOW_ARRAY_X));
-
-  // printf("%d\n", featPrintAll());  
-  // laserPrintIndex(0);
-  // laserPrintIndex(20);
 
   COMP * currentComp = compGetCurrent();
   POS * currentPos = posGetCurrent();
@@ -213,99 +207,127 @@ int main(int argc, char **argv)
           FEATURE newPoint;
           newPoint.x = calcPos.x + currentLaser->range[x]*cos(laserAngle+calcPos.heading);
           newPoint.y = calcPos.y + currentLaser->range[x]*sin(laserAngle+calcPos.heading);
+
           pointAdd(&newPoint);
 
         }
       }
 
 
-      if((laserCount) == 3){
-        printf("Lasercount %lf, %lf, %lf\n", featPos.x, featPos.y, featPos.heading);
-        FILE * laserFile = fopen("result/laserRobotPos.csv", "w");
-        fprintf(laserFile, "idx, x, y, heading\n");
-        fprintf(laserFile, "%d, %lf, %lf, %lf\n", 0, calcPos.x, calcPos.y, calcPos.heading);
+#ifdef USE_GNU_PLOT
+      if((laserCount) == 200){
+        // printf("Lasercount %lf %lf, %lf, %lf\n",time, featPos.x, featPos.y, featPos.heading);
+        FILE * laserFile = fopen("gnuPlot/laserRobotPos.csv", "w");
+        fprintf(laserFile, "idx, time, x, y, heading\n");
+        fprintf(laserFile, "%d, %lf, %lf, %lf, %lf\n", 0, time, calcPos.x, calcPos.y, calcPos.heading);
         fclose(laserFile);
-
         pointPrintCloud();
       }
-
-      if(!pointBrute(&calcPos, &featPos, (laserCount == 3) ? 2 : 0)){
-        // double tempX = featPos.x + calcPos.x;
-        // double tempY = featPos.y + calcPos.y;
-        double tempX = featPos.x + calcPos.x*cos(featPos.heading) - calcPos.y*sin(featPos.heading);
-        double tempY = featPos.y + calcPos.x*sin(featPos.heading) + calcPos.y*cos(featPos.heading); 
-        featPos.heading = normAngle(calcPos.heading, featPos.heading + calcPos.heading);
-
-
-        featPos.x = tempX;
-        featPos.y = tempY;
-
-#ifdef USE_GNU_PLOT
-        printPos(GNU_FEAT, time, featPos.x, featPos.y, featPos.heading);
 #endif
 
-        if(abs(featPos.x - calcPos.x) <= FEATURE_OUTLIER_TOL && abs(featPos.y - calcPos.y) <= FEATURE_OUTLIER_TOL){
-          calcPos.heading = FEAT_HEAD_GAIN*calcPos.heading + (1-FEAT_HEAD_GAIN)*(featPos.heading);
-          calcPos.x = FEAT_GAIN*calcPos.x + (1-FEAT_GAIN)*tempX;
-          calcPos.y = FEAT_GAIN*calcPos.y + (1-FEAT_GAIN)*tempY;
-        }
+    BRUTE_RETURN bruteResult = pointBruteIter(&calcPos, &featPos, laserCount == 200);
 
-        // calcPos.heading = FEAT_HEAD_GAIN*calcPos.heading + (1-FEAT_HEAD_GAIN)*(calcPos.heading + featPos.heading);
+    if(!bruteResult.status){
 
+      double tempX = calcPos.x + featPos.x;
+
+      double tempY = calcPos.y + featPos.y; 
+      featPos.heading = normAngle(calcPos.heading, calcPos.heading + bruteResult.angle);
+
+      featPos.x = tempX;
+      featPos.y = tempY;
+
+      FEATURE * feat = featGet(bruteResult.featureIdx);
+      tempX = featPos.x - feat->x;
+      tempY = featPos.y - feat->y;
+
+      featPos.x = tempX*cos(bruteResult.angle) - tempY*sin(bruteResult.angle);
+      featPos.y = tempX*sin(bruteResult.angle) + tempY*cos(bruteResult.angle);
+
+      featPos.x = featPos.x + feat->x;
+      featPos.y = featPos.y + feat->y;
+
+      
+#ifdef USE_GNU_PLOT
+      printPos(GNU_FEAT, time, featPos.x, featPos.y, featPos.heading);
+#endif
+
+      if(abs(featPos.x - calcPos.x) <= FEATURE_OUTLIER_TOL && abs(featPos.y - calcPos.y) <= FEATURE_OUTLIER_TOL){
+        calcPos.heading = FEAT_HEAD_GAIN*calcPos.heading + (1-FEAT_HEAD_GAIN)*(featPos.heading);
+        calcPos.x = FEAT_GAIN*calcPos.x + (1-FEAT_GAIN)*featPos.x;
+        calcPos.y = FEAT_GAIN*calcPos.y + (1-FEAT_GAIN)*featPos.y;
       }
 
+    }
+
+      
 
       //compute occupancy grid
-      for(int x = 0; x < LASER_POINTS; x++){
-        double laserAngle = LASER_START_ANGLE + x*LASER_ANGLE_RANGE/(LASER_POINTS-1);
+      for(int a = 0; a < LASER_POINTS; a++){
 
-        int closestX;
-        int closestY;
-        if(currentLaser->range[x] < LASER_MAX_RANGE){
-          double hitX = calcPos.x + cos(laserAngle+calcPos.heading)*currentLaser->range[x];
-          double hitY = calcPos.y + sin(laserAngle+calcPos.heading)*currentLaser->range[x];
-          
+          //Bresenham's line algorithm, code is a modifed version of low level version described in https://en.wikipedia.org/wiki/Bresenham%27s_line_algorithm
+          double laserAngle = LASER_START_ANGLE + a*LASER_ANGLE_RANGE/(LASER_POINTS-1);
+          double x0D = WINDOW_RESOLTION*(calcPos.x - WINDOW_START_X);
+          double y0D = WINDOW_RESOLTION*(calcPos.y - WINDOW_START_Y);
+          double x1D = WINDOW_RESOLTION*(calcPos.x + currentLaser->range[a]*cos(laserAngle+calcPos.heading) - WINDOW_START_X);
+          double y1D = WINDOW_RESOLTION*(calcPos.y + currentLaser->range[a]*sin(laserAngle+calcPos.heading) - WINDOW_START_Y);
+          double aLine = y1D - y0D;
+          double bLine = x0D - x1D;
+          double abDist = sqrt(pow(aLine,2) + pow(bLine,2));
+          double cLine = -(aLine*x0D + bLine*y0D);
 
-          closestX = (int)((hitX-WINDOW_START_X)*WINDOW_RESOLTION);
-          closestY = (int)((hitY-WINDOW_START_Y)*WINDOW_RESOLTION);
+          int x0 = floor(x0D);
+          int y0 = floor(y0D);
+          int x1 = floor(x1D);
+          int y1 = floor(y1D);
+          int dx = abs(x1 - x0);
+          int sx = x0 < x1 ? 1 : -1;
+          int dy = -abs(y1 - y0);
+          int sy = y0 < y1 ? 1 : -1;
+          int error = dx + dy;
 
-          if(closestX < 0 || closestX >= ((int)WINDOW_SIZE_X*WINDOW_RESOLTION) || closestY < 0 || closestY >= ((int)WINDOW_SIZE_Y*WINDOW_RESOLTION)){
-            continue;
-          }else{
-            calculateCellHit(&complexOccopuncyGrid[closestY][closestX], currentLaser->range[x]);
+          int hitState = 0;
+          if(currentLaser->range[a] < LASER_MAX_RANGE){
+            hitState = 1;
           }
 
-          // int test = 1;
+          while(1){
 
-          //A better raytracing algorihtm should/could be used
-          //This basically looks for all the grid cells that we can assume are empty (i.e between the robot and a hit target)
-          //Also I should do this for itensity is 0
-        }
-
-          int lastX = -1;
-          int lastY = -1;
-          for(double smallRange = 0; smallRange < currentLaser->range[x]; smallRange += RANGE_INC){
-            double emptyX = calcPos.x + cos(laserAngle+calcPos.heading)*smallRange;
-            double emptyY = calcPos.y + sin(laserAngle+calcPos.heading)*smallRange;
-
-            int closeEmptyX = (int)((emptyX-WINDOW_START_X)*WINDOW_RESOLTION);
-            int closeEmptyY = (int)((emptyY-WINDOW_START_Y)*WINDOW_RESOLTION);
-            if((currentLaser->intensity[x] && closeEmptyX == closestX && closeEmptyY == closestY)){
+            if(x0 < 0 || x0 >= ((int)WINDOW_SIZE_X*WINDOW_RESOLTION) || y0 < 0 || y0 >= ((int)WINDOW_SIZE_Y*WINDOW_RESOLTION)){
               break;
             }
-            if((closeEmptyX == lastX && closeEmptyY == lastY)){
-              // test = 1;
-              continue;
+
+            double xCurrent = ((x0+0.5)/WINDOW_RESOLTION + WINDOW_START_X);
+            double yCurrent = ((y0+0.5)/WINDOW_RESOLTION + WINDOW_START_Y);
+            double range = sqrt(pow( calcPos.x - xCurrent ,2) + pow( calcPos.y - yCurrent ,2));
+
+            double offset = abs( aLine*(x0+0.5) + bLine*(y0+0.5) + cLine )/abDist;
+
+            if(x0 == x1 && y0 == y1){
+              if(hitState){
+                calculateCellHit(&complexOccopuncyGrid[y0][x0], range, offset);
+              }
+              break;
             }
-            if(closeEmptyX >= 0 && closeEmptyX < ((int)WINDOW_SIZE_X*WINDOW_RESOLTION) && closeEmptyY >= 0 && closeEmptyY < ((int)WINDOW_SIZE_Y*WINDOW_RESOLTION)){
-              calculateCellMiss(&complexOccopuncyGrid[closeEmptyY][closeEmptyX], smallRange);
-              lastX = closeEmptyX;
-              lastY = closeEmptyY;
+            calculateCellMiss(&complexOccopuncyGrid[y0][x0], range, offset);
+            int e2 = error*2;
+            if(e2 >= dy){
+              if(x0 == x1){
+                break;
+              }
+              error = error + dy;
+              x0 += sx;
+            } 
+            if(e2 <= dx){
+              if(y0 == y1){
+                break;
+              }
+              error = error + dx;
+              y0 += sy;
             }
           }
-        
-      }
 
+      }
 
       pointClose();
       laserCount++;
@@ -315,63 +337,42 @@ int main(int argc, char **argv)
       }
     }
 
-
-
-
-    fprintf(posResult, "%lf, ", time);
-    fprintf(posResult, "%lf, %lf, ", keepPos->x, keepPos->y);
-    fprintf(posResult, "%lf, ", normHeading);
-    fprintf(posResult, "%lf, %lf, %lf, ", rawPos.x, rawPos.y, rawPos.heading);
-    fprintf(posResult, "%lf, %lf, %lf, ", calcPos.x, calcPos.y, calcPos.heading);
-    fprintf(posResult, "%lf, %lf, %lf\n", featPos.x, featPos.y, featPos.heading);
-    
-
     currentVel = velAdvance();
 
 #ifdef USE_GNU_PLOT
-      printPos(GNU_COMB, time, calcPos.x, calcPos.y, calcPos.heading);
-
-      if(!currentVel || (loopCount % GNU_UPDATE_FREQUENCY == 0)){
-        FILE * file = fopen(GNU_OCC_GRID, "w");
-        fprintf(file, "x y\n");
-        for(int i = 0; i < WINDOW_ARRAY_Y; i++){
-          for(int ii = 1; ii < WINDOW_ARRAY_X; ii++){
-            if(complexOccopuncyGrid[i][ii].hit >= OCC_THRESHOLD){
-              double tempX = (((double)ii)+0.5)/WINDOW_RESOLTION + WINDOW_START_X;
-              double tempY = (((double)i)+0.5)/WINDOW_RESOLTION + WINDOW_START_Y;
-              fprintf(file, "%.18e %.18e\n", tempX, tempY);
-            }
-          }
+    printPos(GNU_COMB, time, calcPos.x, calcPos.y, calcPos.heading);
+    if(!currentVel || (loopCount % GNU_UPDATE_FREQUENCY == 0)){
+      printf("Save Occ\n");
+      FILE * laserOcc = fopen(GNU_OCC_MATRIX, "w");
+      for(int i = 0; i < WINDOW_ARRAY_Y; i++){
+        fprintf(laserOcc, "%lf", complexOccopuncyGrid[i][0].hit);
+        for(int ii = 1; ii < WINDOW_ARRAY_X; ii++){
+          fprintf(laserOcc, " %lf", complexOccopuncyGrid[i][ii].hit);
         }
-        fclose(file);
-
-        gnuplot_cmd(gnuPlot, plotCmd);
-	gnuplot_cmd(occPlot, occCmd);
-        
+        fprintf(laserOcc, "\n");
       }
-#ifdef GNU_SPEED_UP      
-      usleep(dt*1000000/GNU_SPEED_UP);
-#endif
+      fclose(laserOcc);
 
-#endif
+#if USE_GNU_PLOT == 1
+      printf("Plotting\n");
+      gnuplot_cmd(gnuPlot, plotCmd);
+      gnuplot_cmd(occPlot, occCmd);
+#endif //if USE_GNU_PLOT == 1
+      
+    }
+#endif //ifdef USE_GNU_PLOT
 
+#if GNU_SPEED_UP != 0
+    printf("Sleep %lf\n",dt*1000000/GNU_SPEED_UP);
+    usleep(dt*1000000/GNU_SPEED_UP);
+#endif
 
     if(!currentVel){
       break;
     }
-
   }
   printf("Data Finished\n");
 
-  FILE * laserOcc = fopen("result/laserOcc.csv", "w");
-  for(int i = 0; i < WINDOW_ARRAY_Y; i++){
-    fprintf(laserOcc, "%d", occopuncyGrid[i][0]);
-    for(int ii = 1; ii < WINDOW_ARRAY_X; ii++){
-      fprintf(laserOcc, ", %lf", complexOccopuncyGrid[i][ii].hit);
-    }
-    fprintf(laserOcc, "\n");
-  }
-  fclose(laserOcc);
 
   //Techincally unnessary as memory is auto-freed on program end
   compClose();
@@ -381,9 +382,8 @@ int main(int argc, char **argv)
   laserClose();
   printf("Enter to exit\n");
   char f = getchar();
-#ifdef USE_GNU_PLOT
+#if USE_GNU_PLOT == 1
   gnuplot_close(gnuPlot);
-
 #endif
   return 0;
 }

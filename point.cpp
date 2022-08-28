@@ -18,7 +18,6 @@ int pointLength = 0;
 int pointMaxLength = 1;
 POINT_CLOUD * pointCloud = 0;
 
-gnuplot_ctrl * h1;
 
 int pointClose(){
     if(pointCloud){
@@ -92,8 +91,9 @@ int pointAdd(FEATURE * feature){
     if(closestCloud == -1){
         if(pointLength >= (pointMaxLength - 1)){
             pointMaxLength *= 2;
+            pointCloud = (POINT_CLOUD *)realloc(pointCloud, sizeof(POINT_CLOUD)*pointMaxLength);
+
         }
-        pointCloud = (POINT_CLOUD *)realloc(pointCloud, sizeof(POINT_CLOUD)*pointMaxLength);
 
         pointCloud[pointLength].featureCount = 0;
         pointCloud[pointLength].maxFeatureCount = 0;
@@ -108,7 +108,7 @@ int pointAdd(FEATURE * feature){
 }
 
 int pointPrintCloud(){
-    FILE * laserFile = fopen("result/laserCloud.csv", "w");
+    FILE * laserFile = fopen("gnuPlot/laserCloud.csv", "w");
     fprintf(laserFile, "idx, x, y\n");
     for(int i = 0; i < pointLength; i++){
         for(int j = 0; j < pointCloud[i].featureCount; j++){
@@ -117,7 +117,7 @@ int pointPrintCloud(){
     }
     fclose(laserFile);
 
-    laserFile = fopen("result/laserCluster.csv", "w");
+    laserFile = fopen("gnuPlot/laserCluster.csv", "w");
     fprintf(laserFile, "idx, x, y\n");
     for(int pointJ = 0; pointJ < pointLength; pointJ++){
         fprintf(laserFile, "%d, %lf, %lf\n", pointJ, pointCloud[pointJ].worldX, pointCloud[pointJ].worldY);
@@ -127,7 +127,174 @@ int pointPrintCloud(){
     return 0;
 }
 
+BRUTE_RETURN pointBruteIter(CALC_POS * pos, CALC_POS  *finalTrans, int graph){
+    BRUTE_RETURN result;
 
+    double error = -1;
+    int featureIdx = -1;
+    int clusterIdx = -1;
+
+    double tempX, tempY, temp2;
+
+    int featureLength = featCount();
+    
+    if(pointLength < 3 || featureLength < pointLength){
+        result.status = -1;
+        return result;
+    }
+    
+    double finalAngle = 0;
+
+    for(int pointI = 0; pointI < pointLength; pointI++){
+        for(int featI = 0; featI < featureLength; featI++){
+            FEATURE * feat = featGet(featI);
+
+            CALC_POS trans;
+            
+            //angle between the measured cluster point and the real point
+            // trans.heading = atan2(FY, FX) - atan2(IY, IX); 
+            trans.heading = 0;
+            if(abs(trans.heading) > M_PI_4){ //assume the amount of change is not more then 45 degrees
+                // continue;
+            }
+
+            // tempX = IX*cos(trans.heading) - IY*sin(trans.heading);
+            tempX = IX;
+            // tempY = IX*sin(trans.heading) + IY*cos(trans.heading);
+            tempY = IY;
+
+            trans.x = FX - tempX;
+            trans.y = FY - tempY;
+            double e = (trans.x * trans.x) + (trans.y * trans.y);
+            e *= 0;
+            double avgAngle = 0;
+            
+            for(int pointJ = 0; pointJ < pointLength; pointJ++){
+                if(pointJ != pointI){
+                    
+                    tempX = pointCloud[pointJ].worldX + trans.x;
+                    tempY = pointCloud[pointJ].worldY + trans.y;
+                    
+                    double tempAngle = -10;
+                    double tempDistance = -1;
+                    for(int i = 0; i < featureLength; i++){
+                        FEATURE * tempClose = featGet(i);
+                        
+                        double angle2 = atan2(tempClose->y - FY, tempClose->x - FX) - atan2(tempY - FY, tempX - FX);
+                        while(angle2 > M_PI_2){
+                            angle2 -= M_PI;
+                        }
+                        while(angle2 < -M_PI_2){
+                            angle2 += M_PI;
+                        }
+                        
+                        double temp2X = tempX - FX;
+                        double temp2Y = tempY - FY;
+                        double temp3X = temp2X*cos(angle2) - temp2Y*sin(angle2);
+                        double temp3Y = temp2X*sin(angle2) + temp2Y*cos(angle2);
+                        temp2X = temp3X + FX;
+                        temp2Y = temp3Y + FY;
+
+                        double dist = (tempClose->x - temp2X)*(tempClose->x - temp2X) + (tempClose->y - temp2Y)*(tempClose->y - temp2Y);
+
+                        if(tempDistance == -1 || dist < tempDistance){
+                            tempDistance = dist;
+                            tempAngle = angle2;
+                        }    
+                    }
+                    
+                    //This is the same as the above for loop but only looks at the closest feature
+                    // FEATURE * tempClose = featGet(featGetClosest(tempX,tempY));
+                    
+                    // double tempAngle = atan2(tempClose->y - FY, tempClose->x - FX) - atan2(tempY - FY, tempX - FX);
+
+                    // while(tempAngle > M_PI_2){
+                    //     tempAngle -= M_PI;
+                    // }
+                    // while(tempAngle < -M_PI_2){
+                    //     tempAngle += M_PI;
+                    // }
+
+
+                    avgAngle += tempAngle;
+
+                    for(int pointK = 0; pointK < pointLength; pointK++){
+                        
+                        temp2 = trans.x + pointCloud[pointK].worldX;
+                        tempY = trans.y + pointCloud[pointK].worldY; 
+
+
+                        temp2 -= FX;
+                        tempY -= FY;
+
+                        tempX = temp2*cos(tempAngle) - tempY*sin(tempAngle);
+                        tempY = temp2*sin(tempAngle) + tempY*cos(tempAngle); 
+                        
+                        tempX += FX;
+                        tempY += FY;
+
+
+                        //strictly speaking this should be the sum of the sqrt. But the benefit that brings is not worth the cost of sqrt
+                        e += featGetClosestDistance(tempX, tempY);
+                    }
+
+                    if(error == -1 || e < error){
+                        error = e;
+                        // *finalTrans = trans;
+                        finalTrans->x = trans.x;
+                        finalTrans->y = trans.y;
+                        finalTrans->heading = trans.heading;
+                        featureIdx = featI;
+                        clusterIdx = pointI;
+                        finalAngle = tempAngle;
+                    }
+
+
+                }
+            }
+
+        }
+    }
+
+#ifdef USE_GNU_PLOT
+    //This plots the an instance of the logic behind a LiDAR scan, as shown in Figure2
+    if(graph){
+        FILE * laserFile;
+
+        FEATURE * feat = featGet(featureIdx);
+
+        laserFile = fopen("gnuPlot/laserTran.csv", "w");
+        fprintf(laserFile, "idx, tranX, tranY, rotateX, rotateY\n");
+        for(int pointJ = 0; pointJ < pointLength; pointJ++){
+            temp2 = finalTrans->x + pointCloud[pointJ].worldX;
+            tempY = finalTrans->y + pointCloud[pointJ].worldY; 
+
+            fprintf(laserFile, "%d, %lf, %lf, ", pointJ, temp2, tempY);
+
+
+            temp2 -= FX;
+            tempY -= FY;
+
+            tempX = temp2*cos(finalAngle) - tempY*sin(finalAngle);
+            tempY = temp2*sin(finalAngle) + tempY*cos(finalAngle); 
+            tempX += FX;
+            tempY += FY;
+
+            fprintf(laserFile, "%lf, %lf\n", tempX, tempY);
+        }
+        fclose(laserFile);
+    }
+#endif
+    result.status = 0;
+    result.angle = finalAngle;
+    result.featureIdx = featureIdx;
+
+    return result;
+}
+
+
+
+//Unused
 int pointBrute(CALC_POS * pos, CALC_POS  *finalTrans, int graph){
     double error = -1;
     int featureIdx = -1;
@@ -202,38 +369,8 @@ int pointBrute(CALC_POS * pos, CALC_POS  *finalTrans, int graph){
         fclose(laserFile);
     }
 
-    if(graph & 1){
-        h1 = gnuplot_init();
-        char robot[] = "Robot";
-        double tempXGraph[] = {pos->x};
-        double tempYGraph[] = {pos->y};
-        gnuplot_plot_xy(h1, tempXGraph, tempYGraph, 1, "Robot");
-
-        char untran[] = "Untransformed";
-
-        
-        gnuplot_plot_xy_point(h1, pointCloud, pointLength, untran);
-
-        for(int pointJ = 0; pointJ < pointLength; pointJ++){
-            pointCloud[pointJ].worldX = finalTrans->x + pointCloud[pointJ].worldX*cos(finalTrans->heading) - pointCloud[pointJ].worldY*sin(finalTrans->heading);
-            pointCloud[pointJ].worldY = finalTrans->y + pointCloud[pointJ].worldX*sin(finalTrans->heading) + pointCloud[pointJ].worldY*cos(finalTrans->heading); 
-        }
-
-        char tran[] = "Transformed";
-        gnuplot_plot_xy_point(h1, pointCloud, pointLength, tran);
-
-        char feat[] = "Features";
-        gnuplot_plot_xy_feat(h1, featGet(0), featCount(), tran);
-    }
-
 
 
     return 0;
 }
 
-int pointCloseGnu(){
-    if(h1){
-        gnuplot_close(h1);
-    }
-    return 0;
-}

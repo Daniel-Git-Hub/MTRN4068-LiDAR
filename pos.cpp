@@ -29,7 +29,6 @@ int posInit(){
         }
         int result = fscanf(posFile, "%lu %u %lf %lf", &posData[posLength].second, &posData[posLength].micro, &posData[posLength].x, &posData[posLength].y);
 
-        // printf("%lu %u %lf %lf\n", posData[posLength].second, posData[posLength].micro, posData[posLength].x, posData[posLength].y);
 
         if(result != 4 || feof(posFile)){
             break;

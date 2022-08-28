@@ -80,23 +80,54 @@ double avgAngle(double *data, int sampleSize){
 
 }
 
-int calculateCellHit(OCC_CELL * cell, double range){
-    double prob = 0.5 + 0.48*(LASER_MAX_RANGE - range)/LASER_MAX_RANGE;
-    // double prob = 0.75 + 0.25*(LASER_MAX_RANGE - range)/LASER_MAX_RANGE;
-    // double prob = 1;
-    cell->hit = (cell->hit * prob)/((cell->hit * prob) + (cell->miss * (1 - prob)));
-    cell->miss = 1 - cell->hit;
+// int calculateCellHit(OCC_CELL * cell, double range){
+//     double prob = 0.5 + 0.48*(LASER_MAX_RANGE - range)/LASER_MAX_RANGE;
+//     // double prob = 0.9;
+
+//     // double prob = 0.75 + 0.25*(LASER_MAX_RANGE - range)/LASER_MAX_RANGE;
+//     // double prob = 1;
+//     // double miss = 1 - cell->hit;
+//     // cell->hit = (cell->hit * prob)/((cell->hit * prob) + (miss * (1 - prob)));
+//     cell->hit = (cell->hit * prob)/((cell->hit * prob) + (cell->miss * (1 - prob)));
+//     cell->miss = 1 - cell->hit;
+//     return 0;
+// }
+
+
+// int calculateCellMiss(OCC_CELL * cell, double range){
+//     double prob = 0.5 + 0.28*(LASER_MAX_RANGE - range)/LASER_MAX_RANGE;
+//     // double prob = 0.9;
+//     // double prob = 1;
+//     // double miss = 1 - cell->hit;
+//     // cell->hit = 1 - (miss * prob)/((miss * prob) + (cell->hit * (1 - prob)));
+//     cell->miss = (cell->miss * prob)/((cell->miss * prob) + (cell->hit * (1 - prob)));
+//     cell->hit = 1 - cell->miss;
+//     return 0;
+// }
+
+
+int calculateCellHit(OCC_CELL * cell, double range, double offset){
+    double prob = 0.98*((LASER_MAX_RANGE - range)/LASER_MAX_RANGE + (M_SQRT2 - offset)*M_SQRT1_2 )/2 ;
+    if(prob < 0.5){
+        prob = 0.5;
+    }
+    double miss = 1 - cell->hit ;
+    cell->hit = (cell->hit * prob)/((cell->hit * prob) + (miss * (1 - prob)));
     return 0;
 }
 
 
-int calculateCellMiss(OCC_CELL * cell, double range){
-    double prob = 0.5 + 0.48*(LASER_MAX_RANGE - range)/LASER_MAX_RANGE;
-    // double prob = 1;
-    cell->miss = (cell->miss * prob)/((cell->miss * prob) + (cell->hit * (1 - prob)));
-    cell->hit = 1 - cell->miss;
+int calculateCellMiss(OCC_CELL * cell, double range, double offset){
+    double prob = 0.98*((LASER_MAX_RANGE - range)/LASER_MAX_RANGE  + (M_SQRT2 - offset)*M_SQRT1_2 ) /2;
+
+    if(prob < 0.5){
+        prob = 0.5;
+    }
+    double miss = 1 - cell->hit;
+    cell->hit = 1 - (miss * prob)/((miss * prob) + (cell->hit * (1 - prob)));
     return 0;
 }
+
 
 int printPos(char * fileName, double t, double h){
     FILE * file = fopen(fileName, "a");
@@ -141,13 +172,14 @@ int printFileInit(){
   fclose(file);
 
 
-  file = fopen(GNU_OCC_GRID, "w");
+  file = fopen(GNU_OCC_MATRIX, "w");
   fprintf(file, "x y\n");
-
   fclose(file);
+
+
   file = fopen(GNU_FEAT_GRID, "w");
   fprintf(file, "x y\n");
-
   fclose(file);
+
   return 0;
 }

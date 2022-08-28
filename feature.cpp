@@ -56,7 +56,7 @@ FEATURE * featGet(int idx){
 }
 
 int featGetClosest(double x, double y){
-    double distance = FEATURE_TOL; //the square of the min distance allowed for it to be counted as that feature
+    double distance = -1; //the square of the min distance allowed for it to be counted as that feature
     int result = -1;
 
     for(int i = 0; i < featureLength; i++){
@@ -64,7 +64,7 @@ int featGetClosest(double x, double y){
         double yDif = featureData[i].y - y;
         double temp = (xDif * xDif) + (yDif * yDif);
 
-        if(temp < distance){
+        if(distance == -1 || temp < distance){
             distance = temp;
             result = i;
         }
